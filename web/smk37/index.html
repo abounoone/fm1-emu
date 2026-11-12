@@ -104,6 +104,19 @@
         <label id="midiin" title="A MIDI keyboard plays the SMK-37's keys (notes C3..C6, with velocity) and its wheels (pitch bend, mod wheel)">MIDI keyboard <span class="sel"><span id="midiact" aria-hidden="true"></span><select id="midi" aria-label="MIDI input"><option value="">off</option><option value="*">all inputs</option></select></span></label>
         <label id="midichl" hidden>Channel
           <select id="midich" aria-label="MIDI channel"><option value="0">as sent</option></select></label>
+        <label id="ctrlprofilel" hidden>Controller
+          <select id="ctrlprofile" aria-label="Controller profile"><option value="">none</option><option value="sp404mk2">SP-404 MK2</option></select></label>
+        <details class="save-controls" id="ctrlmapbox" hidden>
+          <summary>Edit mapping</summary>
+          <div class="row">
+            <button type="button" id="ctrl-learn" disabled>Learn</button>
+          </div>
+          <div id="ctrlmap-rows"></div>
+          <div class="row">
+            <label>Velocity <select id="ctrlvelocity" aria-label="Velocity mode"><option value="pass">as sent</option><option value="fixed">fixed</option></select></label>
+            <input type="number" id="ctrlvelocity-fixed" min="1" max="127" value="100" hidden>
+          </div>
+        </details>
       </section>
     </aside>
   </div>
