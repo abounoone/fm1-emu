@@ -407,3 +407,18 @@ test('arming Learn then switching firmware (via the real select) disarms it inst
   assert.deepEqual(p.audio.messages.at(-1), { type: 'midi', bytes: [0x90, 40, 100] });
   assert.equal(p.api.ctrlMaps.sp404mk2?.b, undefined);
 });
+test('the velocity controls are disabled with no controller profile, like Learn, so they cannot write a dead mapping entry', async () => {
+  const p = await page(); await p.api.startAudio(); await p.api.boot(); await settle();
+  const velocitySel = p.elements.get('ctrlvelocity'), velocityFixed = p.elements.get('ctrlvelocity-fixed');
+  assert.equal(velocitySel.disabled, true);
+  assert.equal(velocityFixed.disabled, true);
+  const profileSel = p.elements.get('ctrlprofile');
+  profileSel.value = 'sp404mk2';
+  profileSel.listeners.change();
+  assert.equal(velocitySel.disabled, false);
+  assert.equal(velocityFixed.disabled, false);
+  profileSel.value = '';
+  profileSel.listeners.change();
+  assert.equal(velocitySel.disabled, true);
+  assert.equal(velocityFixed.disabled, true);
+});

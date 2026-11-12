@@ -599,7 +599,7 @@ let ctrlLearnArmed = false;
 for (let c = 1; c <= 16; c++) midiChSel.add(new Option(String(c), c));
 midiChSel.value = midiCh;
 ctrlProfileSel.value = ctrlProfile;
-ctrlLearnBtn.disabled = !ctrlProfile;
+ctrlLearnBtn.disabled = ctrlVelocitySel.disabled = ctrlVelocityFixed.disabled = !ctrlProfile;
 const midiWant = () => stored("fm1.midi") || "";
 if (!navigator.requestMIDIAccess) {
   midiSel.disabled = midiChSel.disabled = true;
@@ -723,7 +723,7 @@ midiChSel.addEventListener("change", () => {
 ctrlProfileSel.addEventListener("change", () => {
   ctrlProfile = ctrlProfileSel.value;
   store("fm1.ctrlprofile", ctrlProfile);
-  ctrlLearnBtn.disabled = !ctrlProfile;
+  ctrlLearnBtn.disabled = ctrlVelocitySel.disabled = ctrlVelocityFixed.disabled = !ctrlProfile;
   ctrlLearnArmed = false;
   renderCtrlMap();
 });
