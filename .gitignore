@@ -30,3 +30,6 @@ _site/
 # tools/hwdsp.py run: raw results (tests/hwdsp/fm1.txt is the reference, from export)
 tests/hwdsp/*.json
 work/film/
+
+# local git worktrees (superpowers:using-git-worktrees)
+/.worktrees/
