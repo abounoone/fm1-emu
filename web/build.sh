@@ -27,9 +27,15 @@ fi
 rm -rf "$OUT"
 mkdir -p "$OUT"
 cp target/wasm/wasm32-unknown-unknown/release/fm1_web.wasm "$OUT/"
-cp web/index.html web/style.css web/main.js web/persistence.js web/tryout.js web/worklet.js web/jit.js web/fwsc.js web/firmwares.json web/fm1-emu-report.pdf web/og.png "$OUT/"
+cp web/index.html web/style.css web/main.js web/controller.js web/persistence.js web/tryout.js web/worklet.js web/jit.js web/fwsc.js web/firmwares.json web/fm1-emu-report.pdf web/og.png "$OUT/"
 # the SMK-37's page: its own index, catalog and preview, the same code and wasm beside them
 mkdir -p "$OUT/smk37"
 cp web/smk37/index.html web/smk37/firmwares.json web/smk37/og.png "$OUT/smk37/"
-cp web/style.css web/main.js web/persistence.js web/tryout.js web/worklet.js web/jit.js web/fwsc.js "$OUT/fm1_web.wasm" "$OUT/smk37/"
+cp web/style.css web/main.js web/controller.js web/persistence.js web/tryout.js web/worklet.js web/jit.js web/fwsc.js "$OUT/fm1_web.wasm" "$OUT/smk37/"
+# every ./sibling.js main.js imports must have been copied above, or the page's module graph
+# fails to load silently (an ES import error aborts the whole script, so Start does nothing)
+for f in $(grep -oE 'from "\./[A-Za-z0-9_.-]+\.js"' web/main.js | sed -E 's#.*"\./##; s#"$##'); do
+  [ -f "$OUT/$f" ] || { echo "build.sh: main.js imports ./$f but it was not copied to $OUT" >&2; exit 1; }
+  [ -f "$OUT/smk37/$f" ] || { echo "build.sh: main.js imports ./$f but it was not copied to $OUT/smk37" >&2; exit 1; }
+done
 ls -la "$OUT" | grep -v "^total"
