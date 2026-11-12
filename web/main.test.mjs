@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import * as persistence from './persistence.js';
 import * as tryout from './tryout.js';
+import * as controller from './controller.js';
 const settle = () => new Promise(resolve => setImmediate(resolve));
 class Element {
   constructor(text = '', value = '') {
@@ -86,12 +87,19 @@ async function page(disk = storage(), initialSearch = '', selected = '', manualB
     matchMedia: () => ({ matches: false }), confirm: () => true,
     fetchPackage: async f => ({ bytes: new Uint8Array(960).fill(f.id === 'a' ? 1 : 2), url: f.package }),
     hubNewcomers: async () => [], hubCardUrl: id => `https://thefirmwarehub.com/#fw-${id}`,
-    ...persistence, ...tryout, SaveStore: class { constructor() { return disk; } }, ...extra };
+    ...persistence, ...tryout,
+    emptyMap: controller.emptyMap, mapFor: controller.mapFor, withMap: controller.withMap,
+    learn: controller.learn, setTarget: controller.setTarget, removeMapping: controller.removeMapping,
+    setMapVelocity: controller.setVelocity, applyMapping: controller.applyMapping,
+    SaveStore: class { constructor() { return disk; } }, ...extra };
   const source = readFileSync(new URL('./main.js', import.meta.url), 'utf8').replace(/^import .*;$/gm, '');
   const run = new Function(...Object.keys(environment), `return (async () => { ${source}\nreturn {
     startAudio, boot, flushRunning, setLatency, get running() { return running; },
     setFirmware(id) { fw = byId.get(id); fwSel.value = id; }, setBank(bytes) { bank = bytes; },
-    get fw() { return fw; }, perf, setMhz(c) { mhz = c; }, get bootSeq() { return bootSeq; }
+    get fw() { return fw; }, perf, setMhz(c) { mhz = c; }, get bootSeq() { return bootSeq; },
+    midiMessage, armLearn() { ctrlLearnArmed = true; },
+    setCtrlProfile(id) { ctrlProfile = id; ctrlProfileSel.value = id; ctrlLearnBtn.disabled = !id; renderCtrlMap(); },
+    setMappingTarget, setMappingVelocity, get ctrlMaps() { return ctrlMaps; }
   }; })()`);
   const api = await run(...Object.values(environment));
   return { api, disk, elements, location, expireBoot: () => bootTimer(), get audio() { return audio; } };
@@ -312,4 +320,51 @@ test('?package= plays a package from a link, named by &name=, and a reload fetch
   // not https: ignored, the page as without it
   const r = await page(storage(), '?package=http%3A%2F%2Fexample.test%2Fx.fwsc');
   assert.equal(r.api.fw.id, 'a');
+});
+
+test('no controller profile leaves every MIDI message untouched', async () => {
+  const p = await page(); await p.api.startAudio(); await p.api.boot(); await settle();
+  p.api.midiMessage({ data: Uint8Array.from([0x90, 40, 100]) });
+  assert.deepEqual(p.audio.messages.at(-1), { type: 'midi', bytes: [0x90, 40, 100] });
+});
+test('setting a mapped note target changes what reaches the firmware; unmapped notes still pass through', async () => {
+  const p = await page(); await p.api.startAudio(); await p.api.boot(); await settle();
+  p.api.setCtrlProfile('sp404mk2');
+  p.api.setMappingTarget('notes', 40, 60);
+  p.api.midiMessage({ data: Uint8Array.from([0x90, 40, 100]) });
+  assert.deepEqual(p.audio.messages.at(-1), { type: 'midi', bytes: [0x90, 60, 100] });
+  p.api.midiMessage({ data: Uint8Array.from([0x90, 41, 100]) });
+  assert.deepEqual(p.audio.messages.at(-1), { type: 'midi', bytes: [0x90, 41, 100] });
+});
+test('Learn captures the next incoming note identity-mapped, and consumes that one message instead of playing it', async () => {
+  const p = await page(); await p.api.startAudio(); await p.api.boot(); await settle();
+  p.api.setCtrlProfile('sp404mk2');
+  const before = p.audio.messages.length;
+  p.api.armLearn();
+  p.api.midiMessage({ data: Uint8Array.from([0x90, 36, 100]) });
+  assert.equal(p.audio.messages.length, before);
+  assert.deepEqual(p.api.ctrlMaps.sp404mk2[p.api.fw.id].notes, { 36: 36 });
+  p.api.midiMessage({ data: Uint8Array.from([0x90, 36, 100]) });
+  assert.equal(p.audio.messages.length, before + 1);
+  assert.deepEqual(p.audio.messages.at(-1), { type: 'midi', bytes: [0x90, 36, 100] });
+});
+test('a mapping is kept per firmware: switching firmware does not leak one firmware\'s map into another\'s', async () => {
+  const p = await page(); await p.api.startAudio(); await p.api.boot(); await settle();
+  p.api.setCtrlProfile('sp404mk2');
+  p.api.setMappingTarget('notes', 40, 60);
+  p.api.setFirmware('b');
+  p.api.midiMessage({ data: Uint8Array.from([0x90, 40, 100]) });
+  assert.deepEqual(p.audio.messages.at(-1), { type: 'midi', bytes: [0x90, 40, 100] });
+  p.api.setFirmware('a');
+  p.api.midiMessage({ data: Uint8Array.from([0x90, 40, 100]) });
+  assert.deepEqual(p.audio.messages.at(-1), { type: 'midi', bytes: [0x90, 60, 100] });
+});
+test('a fixed velocity override applies only to a sounding note-on', async () => {
+  const p = await page(); await p.api.startAudio(); await p.api.boot(); await settle();
+  p.api.setCtrlProfile('sp404mk2');
+  p.api.setMappingVelocity(100);
+  p.api.midiMessage({ data: Uint8Array.from([0x90, 40, 5]) });
+  assert.deepEqual(p.audio.messages.at(-1), { type: 'midi', bytes: [0x90, 40, 100] });
+  p.api.midiMessage({ data: Uint8Array.from([0x80, 40, 5]) });
+  assert.deepEqual(p.audio.messages.at(-1), { type: 'midi', bytes: [0x80, 40, 5] });
 });

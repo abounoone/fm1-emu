@@ -6,6 +6,7 @@
 import { fetchPackage, hubNewcomers, hubCardUrl } from "./fwsc.js";
 import { SaveStore, packageHash, changedSectors, packSectors, exportSave, importSave } from "./persistence.js";
 import { tryOutOf, loadTryOut } from "./tryout.js";
+import { emptyMap, mapFor, withMap, learn, setTarget, removeMapping, setVelocity as setMapVelocity, applyMapping } from "./controller.js";
 
 const CLOCKS = [60, 80, 100, 120, 160, 200, 240];
 // The device this page is for: the FM-1 (index.html) or the SMK-37 (smk37/index.html, <html
@@ -334,6 +335,7 @@ showFirmware();
 
 fwSel.addEventListener("change", () => {
   fw = byId.get(fwSel.value) || localFw;
+  renderCtrlMap();
   endTryOut();
   loadedUrl = null;
   if (!EMBED && !fw.link) store(DEV.key + "fw", fw.id);   // a link is not kept: the next visit has the last pick
@@ -577,23 +579,83 @@ addEventListener("keyup", (e) => {
 // The chosen input(s) play the synth through its MIDI IN jack (UART1 at 31250 baud in the
 // emulator). Access is asked for only once an input is picked (Chrome asks the visitor), and on
 // Start when one was picked on an earlier visit. Channel: channel messages rewritten to one
-// channel (0 = as sent).
+// channel (0 = as sent). Controller: an optional per-firmware note/CC/velocity remap, calibrated
+// with Learn (see controller.js) — unmapped numbers always pass through untouched.
 const midiSel = document.getElementById("midi");
 const midiChSel = document.getElementById("midich");
 const midiAct = document.getElementById("midiact");
+const ctrlProfileSel = document.getElementById("ctrlprofile");
+const ctrlLearnBtn = document.getElementById("ctrl-learn");
+const ctrlRows = document.getElementById("ctrlmap-rows");
+const ctrlVelocitySel = document.getElementById("ctrlvelocity");
+const ctrlVelocityFixed = document.getElementById("ctrlvelocity-fixed");
 let midi = null, midiAsked = null, midiActOff = 0;
 let midiCh = Number(stored("fm1.midich") || 0);
+let ctrlProfile = stored("fm1.ctrlprofile") || "";
+let ctrlMaps = {};
+try { ctrlMaps = JSON.parse(stored("fm1.ctrlmaps") || "{}"); } catch { /* corrupt: start fresh */ }
+let ctrlLearnArmed = false;
 for (let c = 1; c <= 16; c++) midiChSel.add(new Option(String(c), c));
 midiChSel.value = midiCh;
+ctrlProfileSel.value = ctrlProfile;
+ctrlLearnBtn.disabled = !ctrlProfile;
 const midiWant = () => stored("fm1.midi") || "";
 if (!navigator.requestMIDIAccess) {
   midiSel.disabled = midiChSel.disabled = true;
   document.getElementById("midiin").title = "this browser has no Web MIDI (Chrome, Edge and Firefox do)";
 }
+function saveCtrlMaps() { store("fm1.ctrlmaps", JSON.stringify(ctrlMaps)); }
+function activeMap() { return mapFor(ctrlMaps, ctrlProfile, fw.id); }
+function applyControllerProfile(bytes) { return applyMapping(activeMap(), bytes); }
+function setMappingTarget(kind, from, to) {
+  ctrlMaps = withMap(ctrlMaps, ctrlProfile, fw.id, setTarget(activeMap() || emptyMap(), kind, from, to));
+  saveCtrlMaps();
+}
+function setMappingVelocity(v) {
+  ctrlMaps = withMap(ctrlMaps, ctrlProfile, fw.id, setMapVelocity(activeMap() || emptyMap(), v));
+  saveCtrlMaps();
+  renderCtrlMap();
+}
+function captureLearn(bytes) {
+  const status = bytes[0] & 0xf0;
+  if (status !== 0x90 && status !== 0x80 && status !== 0xb0) return false;
+  ctrlMaps = withMap(ctrlMaps, ctrlProfile, fw.id, learn(activeMap() || emptyMap(), bytes[0], bytes[1]));
+  saveCtrlMaps();
+  renderCtrlMap();
+  return true;
+}
+function renderCtrlMap() {
+  ctrlRows.replaceChildren();
+  const map = activeMap() || emptyMap();
+  for (const kind of ["notes", "cc"]) {
+    for (const from of Object.keys(map[kind])) {
+      const row = document.createElement("div");
+      row.className = "row";
+      const label = document.createElement("span");
+      label.textContent = `${kind === "cc" ? "CC" : "note"} ${from} →`;
+      const target = document.createElement("input");
+      target.type = "number"; target.min = "0"; target.max = "127"; target.value = String(map[kind][from]);
+      target.addEventListener("change", () => setMappingTarget(kind, Number(from), Number(target.value)));
+      const removeBtn = document.createElement("button");
+      removeBtn.type = "button"; removeBtn.textContent = "×";
+      removeBtn.addEventListener("click", () => {
+        ctrlMaps = withMap(ctrlMaps, ctrlProfile, fw.id, removeMapping(activeMap() || emptyMap(), kind, Number(from)));
+        saveCtrlMaps();
+        renderCtrlMap();
+      });
+      row.append(label, target, removeBtn);
+      ctrlRows.append(row);
+    }
+  }
+  ctrlVelocitySel.value = map.velocity === "pass" ? "pass" : "fixed";
+  ctrlVelocityFixed.hidden = map.velocity === "pass";
+  if (map.velocity !== "pass") ctrlVelocityFixed.value = String(map.velocity);
+}
 function midiMessage(e) {
   const d = e.data;
   if (!d.length || !node) return;
   const bytes = Array.from(d);
+  if (ctrlLearnArmed) { if (captureLearn(bytes)) ctrlLearnArmed = false; return; }
   if (midiCh && bytes[0] >= 0x80 && bytes[0] < 0xf0) bytes[0] = (bytes[0] & 0xf0) | (midiCh - 1);
   if (board === 1) {
     // the SMK-37 has no MIDI in jack: notes C3..C6 play its keys (the velocity as the time between
@@ -610,7 +672,7 @@ function midiMessage(e) {
       setAnalog(21, MOD_REST - bytes[2] / 127 * (MOD_REST - 474));
     }
   } else {
-    send({ type: "midi", bytes });
+    send({ type: "midi", bytes: applyControllerProfile(bytes) });
   }
   if (bytes[0] < 0xf8) {
     midiAct.classList.add("on");
@@ -655,6 +717,20 @@ midiChSel.addEventListener("change", () => {
   midiCh = Number(midiChSel.value);
   store("fm1.midich", midiCh);
 });
+ctrlProfileSel.addEventListener("change", () => {
+  ctrlProfile = ctrlProfileSel.value;
+  store("fm1.ctrlprofile", ctrlProfile);
+  ctrlLearnBtn.disabled = !ctrlProfile;
+  renderCtrlMap();
+});
+ctrlLearnBtn.addEventListener("click", () => { ctrlLearnArmed = true; });
+ctrlVelocitySel.addEventListener("change", () => {
+  setMappingVelocity(ctrlVelocitySel.value === "fixed" ? Number(ctrlVelocityFixed.value) : "pass");
+});
+ctrlVelocityFixed.addEventListener("change", () => {
+  if (ctrlVelocitySel.value === "fixed") setMappingVelocity(Number(ctrlVelocityFixed.value));
+});
+renderCtrlMap();
 
 // ---------------------------------------------------------------- is the device keeping up?
 // Two measures, per second: the load (the share of the audio thread's time the emulation takes,
