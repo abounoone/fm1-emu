@@ -335,6 +335,7 @@ showFirmware();
 
 fwSel.addEventListener("change", () => {
   fw = byId.get(fwSel.value) || localFw;
+  ctrlLearnArmed = false;
   renderCtrlMap();
   endTryOut();
   loadedUrl = null;
@@ -618,7 +619,9 @@ function setMappingVelocity(v) {
 }
 function captureLearn(bytes) {
   const status = bytes[0] & 0xf0;
-  if (status !== 0x90 && status !== 0x80 && status !== 0xb0) return false;
+  if (!ctrlProfile) return false;
+  const soundingNoteOn = status === 0x90 && bytes[2] > 0;
+  if (!soundingNoteOn && status !== 0xb0) return false;
   ctrlMaps = withMap(ctrlMaps, ctrlProfile, fw.id, learn(activeMap() || emptyMap(), bytes[0], bytes[1]));
   saveCtrlMaps();
   renderCtrlMap();
@@ -655,7 +658,7 @@ function midiMessage(e) {
   const d = e.data;
   if (!d.length || !node) return;
   const bytes = Array.from(d);
-  if (ctrlLearnArmed) { if (captureLearn(bytes)) ctrlLearnArmed = false; return; }
+  if (ctrlLearnArmed && captureLearn(bytes)) { ctrlLearnArmed = false; return; }
   if (midiCh && bytes[0] >= 0x80 && bytes[0] < 0xf0) bytes[0] = (bytes[0] & 0xf0) | (midiCh - 1);
   if (board === 1) {
     // the SMK-37 has no MIDI in jack: notes C3..C6 play its keys (the velocity as the time between
@@ -721,6 +724,7 @@ ctrlProfileSel.addEventListener("change", () => {
   ctrlProfile = ctrlProfileSel.value;
   store("fm1.ctrlprofile", ctrlProfile);
   ctrlLearnBtn.disabled = !ctrlProfile;
+  ctrlLearnArmed = false;
   renderCtrlMap();
 });
 ctrlLearnBtn.addEventListener("click", () => { ctrlLearnArmed = true; });

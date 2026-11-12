@@ -368,3 +368,42 @@ test('a fixed velocity override applies only to a sounding note-on', async () =>
   p.api.midiMessage({ data: Uint8Array.from([0x80, 40, 5]) });
   assert.deepEqual(p.audio.messages.at(-1), { type: 'midi', bytes: [0x80, 40, 5] });
 });
+
+test('Learn ignores a note-off and a zero-velocity note-on: both pass through unharmed and stay armed for the next real hit', async () => {
+  const p = await page(); await p.api.startAudio(); await p.api.boot(); await settle();
+  p.api.setCtrlProfile('sp404mk2');
+  const before = p.audio.messages.length;
+  p.api.armLearn();
+  p.api.midiMessage({ data: Uint8Array.from([0x80, 40, 0]) });
+  assert.deepEqual(p.audio.messages.at(-1), { type: 'midi', bytes: [0x80, 40, 0] });
+  assert.equal(p.audio.messages.length, before + 1);
+  p.api.midiMessage({ data: Uint8Array.from([0x90, 41, 0]) });
+  assert.deepEqual(p.audio.messages.at(-1), { type: 'midi', bytes: [0x90, 41, 0] });
+  assert.equal(p.audio.messages.length, before + 2);
+  assert.equal(p.api.ctrlMaps.sp404mk2, undefined);
+  p.api.midiMessage({ data: Uint8Array.from([0x90, 36, 100]) });
+  assert.equal(p.audio.messages.length, before + 2);
+  assert.deepEqual(p.api.ctrlMaps.sp404mk2[p.api.fw.id].notes, { 36: 36 });
+});
+test('arming Learn then switching the controller profile to none (via the real select) disarms it instead of mis-learning or swallowing the next message', async () => {
+  const p = await page(); await p.api.startAudio(); await p.api.boot(); await settle();
+  p.api.setCtrlProfile('sp404mk2');
+  p.api.armLearn();
+  const profileSel = p.elements.get('ctrlprofile');
+  profileSel.value = '';
+  profileSel.listeners.change();
+  p.api.midiMessage({ data: Uint8Array.from([0x90, 40, 100]) });
+  assert.deepEqual(p.audio.messages.at(-1), { type: 'midi', bytes: [0x90, 40, 100] });
+  assert.equal(p.api.ctrlMaps[''], undefined);
+});
+test('arming Learn then switching firmware (via the real select) disarms it instead of capturing into the wrong firmware', async () => {
+  const p = await page(); await p.api.startAudio(); await p.api.boot(); await settle();
+  p.api.setCtrlProfile('sp404mk2');
+  p.api.armLearn();
+  const fwSelEl = p.elements.get('fw');
+  fwSelEl.value = 'b';
+  fwSelEl.listeners.change();
+  p.api.midiMessage({ data: Uint8Array.from([0x90, 40, 100]) });
+  assert.deepEqual(p.audio.messages.at(-1), { type: 'midi', bytes: [0x90, 40, 100] });
+  assert.equal(p.api.ctrlMaps.sp404mk2?.b, undefined);
+});
