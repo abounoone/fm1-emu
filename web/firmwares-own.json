@@ -99,6 +99,16 @@
       "repo": "https://github.com/profikid/fm1-break-choppah",
       "package": "https://profikid.github.io/fm1-break-choppah/firmware/choppah-latest.fwsc",
       "installer": "https://profikid.github.io/fm1-break-choppah/install/"
+    },
+    {
+      "id": "ind1",
+      "name": "IND-1",
+      "version": "0.2.1",
+      "author": "devrvega",
+      "license": "GPL-3.0",
+      "about": "Editable songs with page-based editors and an LCD \"quest\" screen, built from scratch for the FM-1.",
+      "repo": "https://github.com/devrvega/IND-1",
+      "package": "https://github.com/devrvega/IND-1/releases/download/v0.2.1/ind-0.2.1.fwsc"
     }
   ]
 }
